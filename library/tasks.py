@@ -1,7 +1,10 @@
+import datetime
 from celery import shared_task
 from .models import Loan
 from django.core.mail import send_mail
 from django.conf import settings
+
+from .utils import send_email_reminder
 
 @shared_task
 def send_loan_notification(loan_id):
@@ -18,3 +21,16 @@ def send_loan_notification(loan_id):
         )
     except Loan.DoesNotExist:
         pass
+
+
+@shared_task
+def check_overdue_loans():
+
+    loans = Loan.objects.filter(
+        due_date < datetime.datetime.now(),
+        is_returned=False,
+    )
+
+    for loan in loans:
+        send_email_reminder(loan)  # TODO:
+
