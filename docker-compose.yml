@@ -43,7 +43,7 @@ services:
 
   celery-beat:
     build: .
-    command: celery beat -A library_system worker -l info
+    command: celery -A library_system beat -l info
     volumes:
       - .:/code
     env_file:

@@ -9,4 +9,5 @@ from .models import Loan
 def set_default_due_date(sender, instance, created, ** kwargs) :
     if created:
         instance.due_date = instance.loan_date + timedelta(days=14)
+        instance.save()
         print("loan due date updated.")

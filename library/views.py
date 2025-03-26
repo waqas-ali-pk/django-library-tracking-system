@@ -1,7 +1,9 @@
+from datetime import timedelta
 from rest_framework import viewsets, status
 from rest_framework.response import Response
+from django.db.models import Count, F
 from .models import Author, Book, Member, Loan
-from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer
+from .serializers import AuthorSerializer, BookSerializer, MemberSerializer, LoanSerializer, MemberTopActiveSerializer
 from rest_framework.decorators import action
 from django.utils import timezone
 from .tasks import send_loan_notification
@@ -13,6 +15,9 @@ class AuthorViewSet(viewsets.ModelViewSet):
 class BookViewSet(viewsets.ModelViewSet):
     queryset = Book.objects.all()
     serializer_class = BookSerializer
+
+    def get_queryset(self):
+        return self.queryset.select_related('author')
 
     @action(detail=True, methods=['post'])
     def loan(self, request, pk=None):
@@ -49,6 +54,57 @@ class MemberViewSet(viewsets.ModelViewSet):
     queryset = Member.objects.all()
     serializer_class = MemberSerializer
 
+    action_serializer = {
+        'top_active': MemberTopActiveSerializer
+    }
+
+    def get_serializer_class(self):
+        if hasattr(self, 'action_serializer'):
+            return self.action_serializer.get(self.action, self.serializer_class)
+
+        return super(MemberViewSet, self).get_serializer_class()
+
+    @action(detail=False, methods=['get'], url_path='top-active')
+    def top_active(self, request):
+
+        top_active_members = self.queryset.select_related('user').annotate(
+            active_loans= Count('loans'),
+            email=F('user__email'),
+            username=F('user__username')
+        ).order_by('-active_loans')[:5].values(
+            'id',
+            'username',
+            'email',
+            'active_loans',
+        )
+        
+        return Response(
+            self.get_serializer(
+                top_active_members,
+                many=True,
+            ).data,
+            status=status.HTTP_200_OK
+        )
+
 class LoanViewSet(viewsets.ModelViewSet):
     queryset = Loan.objects.all()
     serializer_class = LoanSerializer
+
+    @action(detail=True, methods=['post'])
+    def extend_due_date(self, request, pk=None):
+        loan = self.get_object()
+        additional_days = request.data.get('additional_days', None)
+
+        if not additional_days:
+            return Response({'error': 'additional_days parameter is missing.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if additional_days < 0:
+            return Response({'error': 'additional_days must be a positive number.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if loan.due_date < timezone.now().date():
+            return Response({'error': 'Loan is already overdue.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        loan.due_date = loan.due_date + timedelta(days=additional_days)
+        loan.save()
+
+        return Response(self.get_serializer(loan).data, status=status.HTTP_200_OK)

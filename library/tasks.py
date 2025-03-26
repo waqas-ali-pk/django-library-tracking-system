@@ -1,8 +1,9 @@
-import datetime
 from celery import shared_task
 from .models import Loan
 from django.core.mail import send_mail
 from django.conf import settings
+
+from django.utils import timezone
 
 from .utils import send_email_reminder
 
@@ -27,7 +28,7 @@ def send_loan_notification(loan_id):
 def check_overdue_loans():
 
     loans = Loan.objects.filter(
-        due_date < datetime.datetime.now(),
+        due_date__lt = timezone.now(),
         is_returned=False,
     )
 
